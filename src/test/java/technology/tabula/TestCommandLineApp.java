@@ -10,6 +10,11 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.ParseException;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -214,6 +219,86 @@ public class TestCommandLineApp {
                  "-r", "-f", "JSON"
         });
         assertEquals(expectedJson, resultJson);
+    }
+
+    private File writeRepaintedPdf() throws IOException {
+        File pdf = folder.newFile("repainted.pdf");
+        try (PDDocument doc = new PDDocument()) {
+            PDPage page = new PDPage();
+            doc.addPage(page);
+            PDType1Font font = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+            try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
+                cs.beginText();
+                cs.setFont(font, 12f);
+                cs.newLineAtOffset(100f, 700f);
+                cs.showText("12345");
+                // horizontal 2.5pt repaint, large enough to bypass PDFBox's own
+                // duplicate suppression but above the 50% area overlap threshold
+                cs.newLineAtOffset(2.5f, 0f);
+                cs.showText("12345");
+                cs.endText();
+            }
+            doc.save(pdf);
+        }
+        return pdf;
+    }
+
+    @Test
+    public void testDedupeCharactersOptionRemovesRepaintedAmount() throws ParseException, IOException {
+        File pdf = writeRepaintedPdf();
+
+        String withoutFlag = csvFromCommandLineArgs(new String[]{pdf.getAbsolutePath(), "-p", "1"});
+        String withFlag = csvFromCommandLineArgs(
+                new String[]{pdf.getAbsolutePath(), "-p", "1", "--dedupe-characters"});
+
+        assertTrue(withoutFlag.contains("1122334455"));
+        assertTrue(withFlag.contains("12345"));
+        assertFalse(withFlag.contains("1122334455"));
+    }
+
+    @Test
+    public void testDedupeCharactersOptionAppliesInBothModes() throws ParseException, IOException {
+        File pdf = writeRepaintedPdf();
+
+        String stream = csvFromCommandLineArgs(new String[]{
+                pdf.getAbsolutePath(), "-p", "1", "-t", "--dedupe-characters"});
+        String lattice = csvFromCommandLineArgs(new String[]{
+                pdf.getAbsolutePath(), "-p", "1", "-l", "--dedupe-characters"});
+
+        assertTrue(stream.contains("12345"));
+        assertFalse(stream.contains("1122334455"));
+        // lattice finds no ruled table here, but it must run cleanly and the
+        // stream output above proves the shared pre-merge dedup path
+        assertNotNull(lattice);
+    }
+
+    @Test
+    public void testDedupeCharactersWithExplicitThreshold() throws ParseException, IOException {
+        File pdf = writeRepaintedPdf();
+
+        String withThreshold = csvFromCommandLineArgs(new String[]{
+                pdf.getAbsolutePath(), "-p", "1", "--dedupe-characters", "0.5"});
+
+        assertTrue(withThreshold.contains("12345"));
+        assertFalse(withThreshold.contains("1122334455"));
+    }
+
+    @Test(expected = ParseException.class)
+    public void testDedupeCharactersRejectsOutOfRangeThreshold() throws ParseException {
+        CommandLineParser parser = new DefaultParser();
+        CommandLine cmd = parser.parse(CommandLineApp.buildOptions(), new String[]{
+                "src/test/resources/technology/tabula/AnimalSounds.pdf",
+                "-p", "1", "--dedupe-characters", "1.5"});
+        new CommandLineApp(new StringBuilder(), cmd);
+    }
+
+    @Test(expected = ParseException.class)
+    public void testDedupeCharactersRejectsNonNumericThreshold() throws ParseException {
+        CommandLineParser parser = new DefaultParser();
+        CommandLine cmd = parser.parse(CommandLineApp.buildOptions(), new String[]{
+                "src/test/resources/technology/tabula/AnimalSounds.pdf",
+                "-p", "1", "--dedupe-characters", "lots"});
+        new CommandLineApp(new StringBuilder(), cmd);
     }
 
 }

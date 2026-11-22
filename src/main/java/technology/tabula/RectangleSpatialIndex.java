@@ -4,12 +4,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.locationtech.jts.geom.Envelope;
-import org.locationtech.jts.index.strtree.STRtree;
+import org.locationtech.jts.index.quadtree.Quadtree;
 
 public class RectangleSpatialIndex<T extends Rectangle> {
-    
 
-    private final STRtree si = new STRtree();
+
+    // A Quadtree is used instead of an STRtree because items must be inserted
+    // and queried interleaved (see CharacterDeduplicator): STRtree packs and
+    // freezes itself on the first query, while Quadtree stays dynamic.
+    private final Quadtree si = new Quadtree();
     private final List<T> rectangles = new ArrayList<>();
 
     public void add(T te) {

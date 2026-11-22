@@ -45,6 +45,7 @@ public class CommandLineApp {
     private OutputFormat outputFormat;
     private String password;
     private TableExtractor tableExtractor;
+    private CharacterDeduplicator characterDeduplicator;
 
     public CommandLineApp(Appendable defaultOutput, CommandLine line) throws ParseException {
         this.defaultOutput = defaultOutput;
@@ -52,6 +53,7 @@ public class CommandLineApp {
         this.pages = CommandLineApp.whichPages(line);
         this.outputFormat = CommandLineApp.whichOutputFormat(line);
         this.tableExtractor = CommandLineApp.createExtractor(line);
+        this.characterDeduplicator = whichCharacterDeduplicator(line);
 
         if (line.hasOption('s')) {
             this.password = line.getOptionValue('s');
@@ -201,10 +203,29 @@ public class CommandLineApp {
     }
 
     private PageIterator getPageIterator(PDDocument pdfDocument) throws IOException {
-        ObjectExtractor extractor = new ObjectExtractor(pdfDocument);
+        ObjectExtractor extractor = new ObjectExtractor(pdfDocument, characterDeduplicator);
         return (pages == null) ?
                 extractor.extract() :
                 extractor.extract(pages);
+    }
+
+    private static CharacterDeduplicator whichCharacterDeduplicator(CommandLine line) throws ParseException {
+        if (!line.hasOption("dedupe-characters")) {
+            return null;
+        }
+        String optionValue = line.getOptionValue("dedupe-characters");
+        float threshold = CharacterDeduplicator.DEFAULT_OVERLAP_THRESHOLD;
+        if (optionValue != null) {
+            try {
+                threshold = Float.parseFloat(optionValue);
+            } catch (NumberFormatException e) {
+                throw new ParseException("Wrong number syntax for character deduplication overlap threshold");
+            }
+            if (threshold <= 0f || threshold > 1f) {
+                throw new ParseException("Character deduplication overlap threshold must be in the range (0, 1]");
+            }
+        }
+        return new CharacterDeduplicator(threshold);
     }
 
     // CommandLine parsing methods
@@ -363,6 +384,18 @@ public class CommandLineApp {
                 .desc("Comma separated list of ranges, or all. Examples: --pages 1-3,5-7, --pages 3 or --pages all. Default is --pages 1")
                 .hasArg()
                 .argName("PAGES")
+                .build());
+        o.addOption(Option.builder()
+                .longOpt("dedupe-characters")
+                .desc("Deduplicate characters drawn more than once at the same position (e.g. repainted text layers), before word merging. "
+                        + "Two characters are duplicates only when their text and direction are equal and their bounding-box intersection "
+                        + "covers at least THRESHOLD of each character's own area. The earliest drawn character is kept; genuinely adjacent "
+                        + "repeated digits are unaffected. THRESHOLD is optional, in the range (0,1], and defaults to "
+                        + CharacterDeduplicator.DEFAULT_OVERLAP_THRESHOLD
+                        + ". Applies to both stream and lattice modes.")
+                .hasArg()
+                .argName("THRESHOLD")
+                .optionalArg(true)
                 .build());
 
         return o;

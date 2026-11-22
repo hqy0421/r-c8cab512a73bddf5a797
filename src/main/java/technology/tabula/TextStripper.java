@@ -21,18 +21,37 @@ public class TextStripper extends PDFTextStripper {
     private final PDDocument document;
     private final ArrayList<TextElement> textElements;
     private final RectangleSpatialIndex<TextElement> spatialIndex;
+    // when non-null, characters overlapping an already retained one are dropped
+    private final CharacterDeduplicator characterDeduplicator;
     private float minCharWidth = Float.MAX_VALUE;
     private float minCharHeight = Float.MAX_VALUE;
     private float totalHeight = 0.0f;
     private int countHeight = 0;
 
     public TextStripper(PDDocument document, int pageNumber) throws IOException {
+        this(document, pageNumber, null);
+    }
+
+    /**
+     * @param characterDeduplicator optional page-wide character deduplication
+     *                              applied before any word merging; pass
+     *                              {@code null} to keep the default behavior
+     */
+    public TextStripper(PDDocument document, int pageNumber, CharacterDeduplicator characterDeduplicator) throws IOException {
         super();
         this.document = document;
         this.setStartPage(pageNumber);
         this.setEndPage(pageNumber);
         this.textElements = new ArrayList<>();
         this.spatialIndex = new RectangleSpatialIndex<>();
+        this.characterDeduplicator = characterDeduplicator;
+        if (characterDeduplicator != null) {
+            // Let every repainted glyph reach writeString so the configured
+            // area-ratio rule decides what is duplicate; PDFBox's built-in
+            // suppression only catches near-exact overlaps and is left at its
+            // default when deduplication is disabled.
+            this.setSuppressDuplicateOverlappingText(false);
+        }
     }
 
     public void process() throws IOException {
@@ -70,13 +89,13 @@ public class TextStripper extends PDFTextStripper {
                     // https://issues.apache.org/jira/browse/PDFBOX-1755
                     wos, textPosition.getDir());
 
-            this.minCharWidth = (float) Math.min(this.minCharWidth, te.getWidth());
-            this.minCharHeight = (float) Math.min(this.minCharHeight, te.getHeight());
-
             countHeight++;
             totalHeight += te.getHeight();
             float avgHeight = totalHeight / countHeight;
-            
+
+            this.minCharWidth = (float) Math.min(this.minCharWidth, te.getWidth());
+            this.minCharHeight = (float) Math.min(this.minCharHeight, te.getHeight());
+
             //We have an issue where tall blank cells throw off the row height calculation
             //Introspect a blank cell a bit here to see if it should be thrown away
             if ((te.getText() == null || te.getText().trim().equals(""))) {
@@ -85,13 +104,22 @@ public class TextStripper extends PDFTextStripper {
                         && te.getHeight() >= (avgHeight * AVG_HEIGHT_MULT_THRESHOLD)) {
                     continue;
                 }
-                
+
                 //if the font size is outside of reasonable ranges, throw it away
                 if (textPosition.getFontSizeInPt() > MAX_BLANK_FONT_SIZE || textPosition.getFontSizeInPt() < MIN_BLANK_FONT_SIZE) {
                     continue;
                 }
             }
-            
+
+            // Optional page-wide deduplication: only characters that survive
+            // are added to both the list and the spatial index, so both always
+            // describe the same retained set. Characters arrive in drawing
+            // order, so the first one of a duplicate group is kept.
+            if (characterDeduplicator != null
+                    && characterDeduplicator.isDuplicate(te, this.spatialIndex)) {
+                continue;
+            }
+
             this.spatialIndex.add(te);
             this.textElements.add(te);
         }

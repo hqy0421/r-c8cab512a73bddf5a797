@@ -8,9 +8,20 @@ import org.apache.pdfbox.pdmodel.PDPage;
 public class ObjectExtractor implements java.io.Closeable {
 
     private final PDDocument pdfDocument;
+    private final CharacterDeduplicator characterDeduplicator;
 
     public ObjectExtractor(PDDocument pdfDocument) {
+        this(pdfDocument, null);
+    }
+
+    /**
+     * @param characterDeduplicator optional page-wide character deduplication
+     *                              applied before word merging; {@code null}
+     *                              keeps the default, unmodified behavior
+     */
+    public ObjectExtractor(PDDocument pdfDocument, CharacterDeduplicator characterDeduplicator) {
         this.pdfDocument = pdfDocument;
+        this.characterDeduplicator = characterDeduplicator;
     }
 
     // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - //
@@ -23,7 +34,7 @@ public class ObjectExtractor implements java.io.Closeable {
         ObjectExtractorStreamEngine streamEngine = new ObjectExtractorStreamEngine(page);
         streamEngine.processPage(page);
 
-        TextStripper textStripper = new TextStripper(pdfDocument, pageNumber);
+        TextStripper textStripper = new TextStripper(pdfDocument, pageNumber, characterDeduplicator);
         textStripper.process();
 
         Utils.sort(textStripper.getTextElements(), Rectangle.ILL_DEFINED_ORDER);

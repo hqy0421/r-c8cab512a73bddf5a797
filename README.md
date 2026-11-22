@@ -15,9 +15,9 @@ Download a version of the tabula-java's jar, with all dependencies included, tha
 
 ```
 $ java -jar target/tabula-1.0.5-jar-with-dependencies.jar --help
-usage: tabula [-a <AREA>] [-b <DIRECTORY>] [-c <COLUMNS>] [-f <FORMAT>]
-       [-g] [-h] [-i] [-l] [-n] [-o <OUTFILE>] [-p <PAGES>] [-r] [-s
-       <PASSWORD>] [-t] [-u] [-v]
+usage: tabula [-a <AREA>] [-b <DIRECTORY>] [-c <COLUMNS>] [--dedupe-characters
+       [THRESHOLD]] [-f <FORMAT>] [-g] [-h] [-i] [-l] [-n] [-o <OUTFILE>] [-p
+       <PAGES>] [-r] [-s <PASSWORD>] [-t] [-u] [-v]
 
 Tabula helps you extract tables from PDFs
 
@@ -37,6 +37,18 @@ Tabula helps you extract tables from PDFs
                             between 0-100 (inclusive) and preceded by '%',
                             input will be taken as % of actual width of
                             the page. Example: --columns %25,50,80.6
+    --dedupe-characters [THRESHOLD]
+                            Deduplicate characters drawn more than once at
+                            the same position (e.g. repainted text layers),
+                            before word merging. Two characters are
+                            duplicates only when their text and direction
+                            are equal and their bounding-box intersection
+                            covers at least THRESHOLD of each character's
+                            own area. The earliest drawn character is kept;
+                            genuinely adjacent repeated digits are
+                            unaffected. THRESHOLD is optional, in the range
+                            (0,1], and defaults to 0.5. Applies to both
+                            stream and lattice modes.
  -f,--format <FORMAT>       Output format: (CSV,TSV,JSON). Default: CSV
  -g,--guess                 Guess the portion of the page to analyze per
                             page.
@@ -112,6 +124,17 @@ try (PDDocument document = PDDocument.load(in)) {
 }
 ```
 
+For PDFs whose text layer repaints the same glyphs at slightly offset positions, pass a `CharacterDeduplicator` to the `ObjectExtractor`. Deduplication runs per page before any word merging and applies identically to stream and lattice extraction:
+
+```java
+// threshold is the minimum fraction of each character's own area that the
+// bounding-box intersection must cover; the no-arg constructor uses 0.5
+CharacterDeduplicator deduplicator = new CharacterDeduplicator(0.5f);
+try (ObjectExtractor oe = new ObjectExtractor(document, deduplicator)) {
+    PageIterator pi = oe.extract();
+    // pages returned by pi no longer contain duplicate characters
+}
+```
 
 For more detail information check the Javadoc. 
 The Javadoc API documentation can be generated (see also '_Building from Source_' section) via
